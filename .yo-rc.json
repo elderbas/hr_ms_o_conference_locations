@@ -1,0 +1,8 @@
+{
+  "generator-expressjs-rest": {},
+  "generator-rest": {
+    "srcDir": "src",
+    "apiDir": "api",
+    "authMethods": []
+  }
+}
