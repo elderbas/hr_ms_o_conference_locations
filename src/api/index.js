@@ -8,7 +8,7 @@ const router = new Router();
 
 function createRabbitMQPublisher(queueName) {
   function publishLocation(location, isFinishedCb) {
-    amqp.connect('amqp://localhost', function(error0, connection) {
+    amqp.connect('amqp://localhost', {}, function(error0, connection) {
       if (error0) {
         throw error0;
       }
@@ -101,6 +101,7 @@ router.post('/api/locations', function (req, res, next) {
     return res.send({error: 'Location shape is not valid'});
   }
 
+
   const location = new LocationModel({ 
     _id: uuidv4(),
     name: req.body.name,
@@ -115,8 +116,10 @@ router.post('/api/locations', function (req, res, next) {
     })),
   });
 
+
   location.save(function (err, location) {
     if (err) return res.send(err);
+
     publishLocationCreation(location, () => res.json(location));
   });
 });

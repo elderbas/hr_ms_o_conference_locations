@@ -18,7 +18,7 @@ mongoose.connection.on('error', (err) => {
   process.exit(-1)
 })
 mongoose.connection.once('open', () => {
-  console.log('we are connected to mongo!');
+  console.log('we are connected to mongo! (services/mongoose/index.js)');
 });
 
 const mezzanineAreaSchema = new mongoose.Schema({
