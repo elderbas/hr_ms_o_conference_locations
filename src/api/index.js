@@ -2,20 +2,54 @@ import { Router } from 'express'
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import mongoose, {LocationModel} from '../services/mongoose';
+
+const amqp = require('amqplib/callback_api');
 const router = new Router();
+
+function createRabbitMQPublisher(queueName) {
+  function publishLocation(location, isFinishedCb) {
+    amqp.connect('amqp://localhost', function(error0, connection) {
+      if (error0) {
+        throw error0;
+      }
+      connection.createChannel(function(error1, channel) {
+        if (error1) {
+          throw error1;
+        }
+
+        const msg = JSON.stringify(location);
+
+        channel.assertQueue(queueName, { durable: true });
+        channel.sendToQueue(queueName, Buffer.from(msg), { persistent: true });
+        isFinishedCb();
+
+        setTimeout(function() {
+          connection.close();
+        }, 500);
+      });
+    });
+  }
+
+  return publishLocation;
+}
+
+const publishLocationCreation = createRabbitMQPublisher('location.create');
+const publishLocationModification = createRabbitMQPublisher('location.modify');
+
+
 
 function isValidLocationShape(location) {
   const hasEnoughRooms = location.rooms.length >= 1;
   const hasEnoughMezzanineAreas = location.mezzanineAreas.length >= 1;
   
-  const roomNumsSubmitted = location.rooms.map((r) => r.roomNum);
-  const roomNumbersAreAllUnique = 
-    Array.from(new Set(roomNumsSubmitted)).length === roomNumsSubmitted.length;
+  const roomNumbersAreAllUnique = (function() {
+    const _roomNumsSubmitted = location.rooms.map((r) => r.roomNum);
+    return Array.from(new Set(_roomNumsSubmitted)).length === _roomNumsSubmitted.length;
+  })();
 
   return (
     hasEnoughRooms &&
     hasEnoughMezzanineAreas &&
-    roomNumsSubmitted &&
     roomNumbersAreAllUnique
   );
 }
@@ -61,6 +95,7 @@ router.get('/api/locations/:id', function (req, res, next) {
 });
 
 // will return null if location ID has no result
+// CREATE
 router.post('/api/locations', function (req, res, next) {
   if (!isValidLocationShape(req.body)) {
     return res.send({error: 'Location shape is not valid'});
@@ -82,24 +117,22 @@ router.post('/api/locations', function (req, res, next) {
 
   location.save(function (err, location) {
     if (err) return res.send(err);
-    res.json(location);
+    publishLocationCreation(location, () => res.json(location));
   });
 });
 
+// UPDATE
 router.put('/api/locations/:id', function (req, res, next) {
-  console.log('INSIDE!');
   // get the location by id
   
   // verify that there is at least 1 room and 1 mezzanineArea
 
   // validate that all room numbers within a location are unique
-  console.log('req');
   const _id = req.params.id;
   
   // make sure we aren't deleting anything
   LocationModel.findById(_id, function (err, oldLocation) {
     if (err) {
-      console.log('err1!');
       return res.send(err);
     }
 
@@ -118,7 +151,7 @@ router.put('/api/locations/:id', function (req, res, next) {
       if (err) {
         return res.send({error: err});
       }
-      res.json(location);
+      publishLocationCreation(location, () => res.json(location));
     });
   });
 });
