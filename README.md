@@ -46,10 +46,15 @@ Express server listening on http://0.0.0.0:9000, in development mode
 
 # RabbitMQ Publishing
 
-All `Create` and `Update` actions of `Location`s that succeed will trigger a publishing of the relevant object to durable the following RabbitMQ channels
+All `Create` and `Update` actions of `Location`s that succeed will trigger a publishing of the relevant object to durable the following RabbitMQ `fanout` exchanges by name
 - Create: 'location.create'
 - Update: 'location.modify'
 
+## Example snippets of consuming
+<script src="https://gist.github.com/elderbas/60d7c920a69e145aa922080ef9922759.js"></script>
+
+---
+---
 
 # REST API Docs
 
