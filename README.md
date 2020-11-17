@@ -51,7 +51,7 @@ All `Create` and `Update` actions of `Location`s that succeed will trigger a pub
 - Update: 'location.modify'
 
 ## Example snippets of consuming
-<script src="https://gist.github.com/elderbas/60d7c920a69e145aa922080ef9922759.js"></script>
+See https://gist.github.com/elderbas/60d7c920a69e145aa922080ef9922759 for example `JavaScript` code of consuming messages published
 
 ---
 ---
