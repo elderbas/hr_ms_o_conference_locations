@@ -6,8 +6,12 @@ import mongoose, {LocationModel} from '../services/mongoose';
 const amqp = require('amqplib/callback_api');
 const router = new Router();
 
-function createRabbitMQPublisher(queueName) {
+
+function createRabbitMQPublisher(exchangeName) {
   function publishLocation(location, isFinishedCb) {
+    const RABBIT_MQ_EXCHANGE_TYPES = {
+      FANOUT: 'fanout',
+    }
     amqp.connect('amqp://localhost', {}, function(error0, connection) {
       if (error0) {
         throw error0;
@@ -19,8 +23,11 @@ function createRabbitMQPublisher(queueName) {
 
         const msg = JSON.stringify(location);
 
-        channel.assertQueue(queueName, { durable: true });
-        channel.sendToQueue(queueName, Buffer.from(msg), { persistent: true });
+        channel.assertExchange(exchangeName, RABBIT_MQ_EXCHANGE_TYPES.FANOUT, {
+          durable: false
+        });
+        channel.publish(exchangeName, '',  Buffer.from(msg));
+
         isFinishedCb();
 
         setTimeout(function() {
@@ -132,6 +139,7 @@ router.put('/api/locations/:id', function (req, res, next) {
 
   // validate that all room numbers within a location are unique
   const _id = req.params.id;
+
   
   // make sure we aren't deleting anything
   LocationModel.findById(_id, function (err, oldLocation) {
@@ -154,7 +162,7 @@ router.put('/api/locations/:id', function (req, res, next) {
       if (err) {
         return res.send({error: err});
       }
-      publishLocationCreation(location, () => res.json(location));
+      publishLocationModification(location, () => res.json(location));
     });
   });
 });
