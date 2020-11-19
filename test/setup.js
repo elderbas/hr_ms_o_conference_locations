@@ -4,9 +4,8 @@ import mongoose from '../src/services/mongoose'
 import router from '../src/api/';
 
 const bodyParser = require('body-parser')
-const express = require("express"); // import express
-const request = require("supertest"); // supertest is a framework that allows to easily test web apis
-// const mockRequire = require('mock-require');
+const express = require("express"); 
+const request = require("supertest");
 
 const amqp = require("amqplib/callback_api");
 const fakeAmqp = require("./mocks/mock-amqp");

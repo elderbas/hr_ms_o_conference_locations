@@ -2,23 +2,27 @@ import { Router } from 'express'
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import mongoose, {LocationModel} from '../services/mongoose';
-
+const CircuitBreaker = require('opossum');
 const amqp = require('amqplib/callback_api');
+
+
 const router = new Router();
 
 
+
+
 function createRabbitMQPublisher(exchangeName) {
-  function publishLocation(location, isFinishedCb) {
+  function publishLocation(location, isFinishedCb, errCb) {
     const RABBIT_MQ_EXCHANGE_TYPES = {
       FANOUT: 'fanout',
     }
     amqp.connect('amqp://localhost', {}, function(error0, connection) {
       if (error0) {
-        throw error0;
+        return errCb(error0);
       }
       connection.createChannel(function(error1, channel) {
         if (error1) {
-          throw error1;
+          return errCb(error1);
         }
 
         const msg = JSON.stringify(location);
@@ -32,7 +36,7 @@ function createRabbitMQPublisher(exchangeName) {
 
         setTimeout(function() {
           connection.close();
-        }, 500);
+        }, 2000);
       });
     });
   }
@@ -42,6 +46,36 @@ function createRabbitMQPublisher(exchangeName) {
 
 const publishLocationCreation = createRabbitMQPublisher('location.create');
 const publishLocationModification = createRabbitMQPublisher('location.modify');
+
+
+// {location, type: 'create' | 'modify}
+let rabbitMQMessagesToSendQueue = [];
+let isCurrentlyTryingToRemoveAMessage = false;
+
+setInterval(() => {
+  if (rabbitMQMessagesToSendQueue.length > 0 && isCurrentlyTryingToRemoveAMessage === false) {
+    isCurrentlyTryingToRemoveAMessage = true;
+    let firstElem = rabbitMQMessagesToSendQueue[0];
+    if (firstElem.type === 'create') {
+      publishLocationCreation(firstElem.location, () => {
+        _.remove(rabbitMQMessagesToSendQueue, ({location}) => location._id === firstElem.location._id);
+        isCurrentlyTryingToRemoveAMessage = false;
+      }, (err) => {
+        isCurrentlyTryingToRemoveAMessage = false;
+      });
+    } else {
+      publishLocationModification(firstElem.location, () => {
+        _.remove(rabbitMQMessagesToSendQueue, ({location}) => location._id === firstElem._id);
+        isCurrentlyTryingToRemoveAMessage = false;
+      }, (err) => {
+        isCurrentlyTryingToRemoveAMessage = false;
+      });
+    }
+  } else {
+    console.log('Queue is empty');
+  }
+  
+}, 2000);
 
 
 
@@ -127,9 +161,39 @@ router.post('/api/locations', function (req, res, next) {
   location.save(function (err, location) {
     if (err) return res.send(err);
 
-    publishLocationCreation(location, () => res.json(location));
+    function asyncFunctionThatCouldFail() {
+      return new Promise((resolve, reject) => {
+        publishLocationCreation(location, () => {
+          res.json(location);
+          resolve();
+        }, (err) => {
+          console.log('Experienced err trying to publish', err);
+          res.json(location);
+          reject();
+        });
+      });
+    }
+
+    const options = {
+      timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
+      errorThresholdPercentage: 50, // When 50% of requests fail, trip the circuit
+      resetTimeout: 15000 // After 15 seconds, try again.
+    };
+
+    const breaker = new CircuitBreaker(asyncFunctionThatCouldFail, options);
+
+    breaker.fallback(() => {
+      rabbitMQMessagesToSendQueue.push({location, type: 'create'});
+    });
+    
+    breaker.fire().catch((e) => {
+      console.log('inside catch after .fire');
+      console.log('e', e);
+    });
   });
 });
+
+
 
 // UPDATE
 router.put('/api/locations/:id', function (req, res, next) {
@@ -162,7 +226,40 @@ router.put('/api/locations/:id', function (req, res, next) {
       if (err) {
         return res.send({error: err});
       }
-      publishLocationModification(location, () => res.json(location));
+
+      // remove from queue if we're updating, since newer should take precedent
+      _.remove(rabbitMQMessagesToSendQueue, (queuedItem) => queuedItem.location._id === location._id);
+      
+      function asyncFunctionThatCouldFail() {
+        return new Promise((resolve, reject) => {
+          publishLocationModification(location, () => {
+            res.json(location);
+            resolve();
+          }, (err) => {
+            console.log('Experienced err trying to publish', err);
+            res.json(location);
+            reject();
+          });
+        });
+      }
+
+      const options = {
+        timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
+        errorThresholdPercentage: 50, // When 50% of requests fail, trip the circuit
+        resetTimeout: 15000 // After 15 seconds, try again.
+      };
+
+      const breaker = new CircuitBreaker(asyncFunctionThatCouldFail, options);
+
+      breaker.fallback(() => {
+        console.log('Adding ', location, 'to the queue to try later');
+        rabbitMQMessagesToSendQueue.push({location, type: 'modify'});
+      });
+      
+      breaker.fire().catch((e) => {
+        console.log('inside catch after .fire');
+        console.log('e', e);
+      });
     });
   });
 });
