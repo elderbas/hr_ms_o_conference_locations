@@ -8,9 +8,6 @@ const amqp = require('amqplib/callback_api');
 
 const router = new Router();
 
-
-
-
 function createRabbitMQPublisher(exchangeName) {
   function publishLocation(location, isFinishedCb, errCb) {
     const RABBIT_MQ_EXCHANGE_TYPES = {
@@ -47,6 +44,16 @@ function createRabbitMQPublisher(exchangeName) {
 const publishLocationCreation = createRabbitMQPublisher('location.create');
 const publishLocationModification = createRabbitMQPublisher('location.modify');
 
+
+
+//  _____       _     _     _ _     __  __  ____    ______    _ _ _                _       ____                        
+// |  __ \     | |   | |   (_) |   |  \/  |/ __ \  |  ____|  | | | |              | |     / __ \                       
+// | |__) |__ _| |__ | |__  _| |_  | \  / | |  | | | |__ __ _| | | |__   __ _  ___| | __ | |  | |_   _  ___ _   _  ___ 
+// |  _  // _` | '_ \| '_ \| | __| | |\/| | |  | | |  __/ _` | | | '_ \ / _` |/ __| |/ / | |  | | | | |/ _ \ | | |/ _ \
+// | | \ \ (_| | |_) | |_) | | |_  | |  | | |__| | | | | (_| | | | |_) | (_| | (__|   <  | |__| | |_| |  __/ |_| |  __/
+// |_|  \_\__,_|_.__/|_.__/|_|\__| |_|  |_|\___\_\ |_|  \__,_|_|_|_.__/ \__,_|\___|_|\_\  \___\_\\__,_|\___|\__,_|\___|
+                                                                                                                     
+                                                                                                                    
 
 // {location, type: 'create' | 'modify}
 let rabbitMQMessagesToSendQueue = [];
@@ -113,6 +120,13 @@ function isPreservingImmutables(oldLocation, newLocation) {
 }
 
 
+//      _______ ______ _______ 
+//     / / ____|  ____|__   __|
+//    / / |  __| |__     | |   
+//   / /| | |_ |  __|    | |   
+//  / / | |__| | |____   | |   
+// /_/   \_____|______|  |_|   
+
 router.get('/api/locations', function (req, res, next) {
   LocationModel.find({}, function (err, locations) {
     if (err) {
@@ -133,13 +147,65 @@ router.get('/api/locations/:id', function (req, res, next) {
   });
 });
 
+
+
+//      _______   ____   _____ _______   _   _____  _    _ _______ 
+//     / /  __ \ / __ \ / ____|__   __| | | |  __ \| |  | |__   __|
+//    / /| |__) | |  | | (___    | |    | | | |__) | |  | |  | |   
+//   / / |  ___/| |  | |\___ \   | |    | | |  ___/| |  | |  | |   
+//  / /  | |    | |__| |____) |  | |    | | | |    | |__| |  | |   
+// /_/   |_|     \____/|_____/   |_|    | | |_|     \____/   |_|   
+//                                      | |                        
+//                                      |_|                        
+
+// used by post and put to _attempt_ to publish to rabbitMQ, and will be circuit broke if it _fails_
+function asyncFunctionThatCouldFail(location, res, publishFnToUse) {
+  return new Promise((resolve, reject) => {
+    publishFnToUse(location, () => {
+      res.json(location);
+      resolve();
+    }, (err) => {
+      reject(err);
+      // use for playng around w how opossum handles waits etc,
+      // if (_.random(0, 1) === 1) {
+      //   setTimeout(() => {
+      //     reject(err);
+      //   }, 4000);
+      // } else {
+      //   reject(err);
+      // }
+    });
+  });
+}
+
+const breaker = new CircuitBreaker(asyncFunctionThatCouldFail, {
+  timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
+  errorThresholdPercentage: 50, // When 50% of requests fail, trip the circuit
+  resetTimeout: 15000 // After 15 seconds, go to half open state
+});
+
+breaker.on('open', () => {
+  console.log('\n---------');
+  console.log('.on OPEN ');
+  console.log('--------------');
+});
+breaker.on('close', () => {
+  console.log('\n---------');
+  console.log('.on CLOSE ');
+  console.log('--------------');
+});
+breaker.on('halfOpen', () => {
+  console.log('\n---------');
+  console.log('.on HALFOPEN ');
+  console.log('--------------');
+});
+
 // will return null if location ID has no result
 // CREATE
 router.post('/api/locations', function (req, res, next) {
   if (!isValidLocationShape(req.body)) {
     return res.send({error: 'Location shape is not valid'});
   }
-
 
   const location = new LocationModel({ 
     _id: uuidv4(),
@@ -155,39 +221,17 @@ router.post('/api/locations', function (req, res, next) {
     })),
   });
 
-
   location.save(function (err, location) {
     if (err) return res.send(err);
 
-    function asyncFunctionThatCouldFail() {
-      return new Promise((resolve, reject) => {
-        publishLocationCreation(location, () => {
-          res.json(location);
-          resolve();
-        }, (err) => {
-          console.log('Experienced err trying to publish', err);
-          res.json(location);
-          reject();
-        });
+    breaker
+      .fire(location, res, publishLocationCreation)
+      .catch((e) => {
+        rabbitMQMessagesToSendQueue.push({location, type: 'create'});
+        // let's send the location, with the optimism (perhaps misplaced)
+        // that the location will be sent to rabbitMQ later
+        res.send(location);
       });
-    }
-
-    const options = {
-      timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
-      errorThresholdPercentage: 50, // When 50% of requests fail, trip the circuit
-      resetTimeout: 15000 // After 15 seconds, try again.
-    };
-
-    const breaker = new CircuitBreaker(asyncFunctionThatCouldFail, options);
-
-    breaker.fallback(() => {
-      rabbitMQMessagesToSendQueue.push({location, type: 'create'});
-    });
-    
-    breaker.fire().catch((e) => {
-      console.log('inside catch after .fire');
-      console.log('e', e);
-    });
   });
 });
 
@@ -225,44 +269,22 @@ router.put('/api/locations/:id', function (req, res, next) {
         return res.send({error: err});
       }
 
-      // remove from queue if we're updating, since newer should take precedent
+      // remove from fallback rabbitmq queue if we're updating, since newer location shape should take precedence
       _.remove(rabbitMQMessagesToSendQueue, (queuedItem) => queuedItem.location._id === location._id);
       
-      function asyncFunctionThatCouldFail() {
-        return new Promise((resolve, reject) => {
-          publishLocationModification(location, () => {
-            res.json(location);
-            resolve();
-          }, (err) => {
-            console.log('Experienced err trying to publish', err);
-            res.json(location);
-            reject();
-          });
-        });
-      }
-
-      const options = {
-        timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
-        errorThresholdPercentage: 50, // When 50% of requests fail, trip the circuit
-        resetTimeout: 15000 // After 15 seconds, try again.
-      };
-
-      const breaker = new CircuitBreaker(asyncFunctionThatCouldFail, options);
-
-      breaker.fallback(() => {
-        console.log('Adding ', location, 'to the queue to try later');
-        rabbitMQMessagesToSendQueue.push({location, type: 'modify'});
+      breaker.on('fallback', () => {
+        console.log('triggering fallback inside /put');
       });
       
-      breaker.fire().catch((e) => {
-        console.log('inside catch after .fire');
-        console.log('e', e);
-      });
+      breaker
+        .fire(location, res, publishLocationModification)
+        .catch((e) => {
+          rabbitMQMessagesToSendQueue.push({location, type: 'modify'});
+          res.send(location);
+        });
     });
   });
 });
-
-
 
 
 

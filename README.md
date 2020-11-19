@@ -33,10 +33,8 @@ Tip: `MongoDB` by default tries to create its database files at `/data/db` but g
 
 
 Skip the NodeJS steps if you want to use docker
-```
-
 (still working on this piece, need to set it up w docker compose)
-
+```
 # start the rabbit mq container
 $ docker ps
 # get the container id of the rabbitmq
