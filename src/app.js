@@ -10,6 +10,7 @@ const server = http.createServer(app)
 
 
 if (mongo.uri) {
+  console.log('trying to connect to mongo via uri: ' + mongo.uri)
   mongoose.connect(mongo.uri)
 }
 mongoose.Promise = Promise

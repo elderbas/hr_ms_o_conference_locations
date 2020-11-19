@@ -26,6 +26,33 @@ Tip: `MongoDB` by default tries to create its database files at `/data/db` but g
 - https://stackoverflow.com/questions/37702957/mongodb-data-db-not-found
 
 
+
+
+
+## Docker
+
+
+Skip the NodeJS steps if you want to use docker
+```
+
+(still working on this piece, need to set it up w docker compose)
+
+# start the rabbit mq container
+$ docker ps
+# get the container id of the rabbitmq
+$ docker inspect <container id of rabbitmq>
+# find the ip address of it (look thru the json to find "IPAddress": "blah here") copy it to clipboard
+
+
+
+docker build .
+# note the image sha on the last line of output from ^
+
+# -p <#s> are for exposing ports for mongo, rest api, rabbitmq so this container can communicate outside of itself
+docker run -p 27017:27017 -p 9000:9000 -e RABBITMQ_URI=amqp://<dockerContainerIP> <docker image sha here>
+```
+
+
 ## NodeJS
 
 This server application is written in JavaScript and requires the JS Runtime engine NodeJS

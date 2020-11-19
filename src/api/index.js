@@ -16,7 +16,7 @@ function createRabbitMQPublisher(exchangeName) {
     const RABBIT_MQ_EXCHANGE_TYPES = {
       FANOUT: 'fanout',
     }
-    amqp.connect('amqp://localhost', {}, function(error0, connection) {
+    amqp.connect(process.env.RABBITMQ_URI, {}, function(error0, connection) {
       if (error0) {
         return errCb(error0);
       }
@@ -71,11 +71,9 @@ setInterval(() => {
         isCurrentlyTryingToRemoveAMessage = false;
       });
     }
-  } else {
-    console.log('Queue is empty');
   }
   
-}, 2000);
+}, 4000);
 
 
 

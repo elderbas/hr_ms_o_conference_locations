@@ -38,11 +38,14 @@ const config = {
   test: { },
   development: {
     mongo: {
-      uri: 'mongodb://localhost/hr-ms-o-conference-locations-dev',
+      uri: process.env.MONGODB_URI || 'mongodb://localhost/hr-ms-o-conference-locations-dev',
       options: {
         debug: true
       }
-    }
+    },
+    rabbitmq: {
+      uri: process.env.RABBITMQ_URI || 'amqp://localhost', // or amqp:://<dockercontainerIP>
+    },
   },
   production: {
     ip: process.env.IP || undefined,
