@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  web:
+    build: .
+    environment:
+      - MONGODB_URI=mongodb://host.docker.internal:27017/hr-ms-o-conference-locations
+      - RABBITMQ_URI=amqp://rabbitmq
+    ports:
+      - "9000:9000"
+      - "27017:27017" # mongodb
+    volumes:
+      - .:/code
+  rabbitmq:
+    image: "rabbitmq:3"
+    ports:
+      - "5672:5672"

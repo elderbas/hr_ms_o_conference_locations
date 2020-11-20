@@ -1,15 +1,12 @@
 FROM node:current-slim
 
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+RUN mkdir -p /code
+WORKDIR /code
 
 COPY package.json .
 RUN npm i
 
-EXPOSE 9000
-EXPOSE 27017 
-ENV MONGODB_URI mongodb://host.docker.internal:27017/hr-ms-o-conference-locations
+COPY . .
 
 CMD ["npm", "start"]
 
-COPY . .
